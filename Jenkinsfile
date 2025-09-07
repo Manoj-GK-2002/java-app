@@ -1,29 +1,64 @@
 pipeline {
     agent any
-    environment {
-        KUBECONFIG = "/home/jenkins/.kube/config"
+
+    tools {
+        jdk 'OpenJDK11'
+        maven 'maven'
     }
+
+    environment {
+        DOCKER_REGISTRY = "docker.io/manojgk1089"
+        IMAGE_NAME = "shopping-cart-new"
+        VERSION = "latest"  // Replace with dynamic version if needed
+    }
+
     stages {
-        stage('Checkout') {
+        stage('Clone') {
             steps {
-                git branch: 'master', credentialsId: 'dsad', url: 'https://github.com/charanrajkumar-ge/simple-java-maven-app.git''
+                git branch: 'master', credentialsId: 'dsad', url: 'https://github.com/Manoj-GK-2002/java-app.git'
             }
         }
-        stage('Deploy to Minikube') {
+
+        stage('Build with Maven') {
             steps {
-                script {
-                    sh 'kubectl apply -f deployment.yaml'
-                    sh 'kubectl apply -f service.yaml'
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonar') {
+                    sh "mvn sonar:sonar"
                 }
             }
         }
-        stage('Verify Deployment') {
+
+        stage('Build Docker Image') {
             steps {
-                script {
-                    sh 'kubectl get pods'
-                    sh 'kubectl get svc'
+                sh """
+                docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${VERSION} -f Dockerfile .
+                """
+            }
+        }
+
+        stage('Login and Push Docker Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                    echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin
+                    docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${VERSION}
+                    """
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "Build and Docker image push completed successfully."
+        }
+        failure {
+            echo "Build or Docker image push failed."
         }
     }
 }
